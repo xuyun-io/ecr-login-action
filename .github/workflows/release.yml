@@ -1,0 +1,55 @@
+name: Release
+on: 
+  push:
+    branches: [ main ]
+    tags-ignore:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build the Docker image
+      run: docker build .
+
+  integration-test:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v3
+    - uses: elgohr/ecr-login-action@main
+      id: ecr
+      with:
+        access_key: ${{ secrets.ACCESS_KEY }}
+        secret_access_key: ${{ secrets.SECRET_ACCESS_KEY }}
+        region: ${{ secrets.REGION }}
+    - name: Login
+      env:
+        DOCKER_USERNAME: ${{ steps.ecr.outputs.username }}
+        DOCKER_PASSWORD: ${{ steps.ecr.outputs.password }}
+        DOCKER_REGISTRY: ${{ steps.ecr.outputs.registry }}
+      run: echo "${DOCKER_PASSWORD}" | docker login --username "${DOCKER_USERNAME}" --password-stdin "${DOCKER_REGISTRY}"
+    - run: docker logout
+
+  release:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    needs:
+      - test
+      - integration-test
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PUBLISH_TOKEN }} # for pushing to protected branch
+      - name: Publish new version
+        run: |
+          git config --global user.email "no_reply@gohr.digital"
+          git config --global user.name "Release Bot"
+          git tag -fa v3 -m "Update v3 tag"
+          git push origin v3 --force
